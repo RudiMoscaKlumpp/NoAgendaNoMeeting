@@ -13,8 +13,24 @@ export function getDb(): Database.Database {
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     initSchema(db);
+    migrateSchema(db);
   }
   return db;
+}
+
+function migrateSchema(db: Database.Database): void {
+  const cols = db
+    .prepare("PRAGMA table_info(users)")
+    .all() as Array<{ name: string }>;
+  const colNames = new Set(cols.map((c) => c.name));
+
+  if (cols.length > 0 && !colNames.has("auth_status")) {
+    db.exec(`
+      ALTER TABLE users ADD COLUMN auth_status TEXT NOT NULL DEFAULT 'valid';
+      ALTER TABLE users ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN last_error TEXT;
+    `);
+  }
 }
 
 function initSchema(db: Database.Database): void {
@@ -23,6 +39,9 @@ function initSchema(db: Database.Database): void {
       email TEXT PRIMARY KEY,
       encrypted_google_tokens TEXT NOT NULL,
       last_poll_at TEXT,
+      auth_status TEXT NOT NULL DEFAULT 'valid',
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -88,10 +107,54 @@ export function updateLastPollAt(email: string): void {
     .run(email);
 }
 
-export function getAllUsers(): Array<{ email: string; last_poll_at: string | null }> {
+export function getAllUsers(): Array<{
+  email: string;
+  last_poll_at: string | null;
+  auth_status: string;
+  consecutive_failures: number;
+  last_error: string | null;
+}> {
   return getDb()
-    .prepare("SELECT email, last_poll_at FROM users")
-    .all() as Array<{ email: string; last_poll_at: string | null }>;
+    .prepare("SELECT email, last_poll_at, auth_status, consecutive_failures, last_error FROM users")
+    .all() as Array<{
+    email: string;
+    last_poll_at: string | null;
+    auth_status: string;
+    consecutive_failures: number;
+    last_error: string | null;
+  }>;
+}
+
+export function markUserReauthRequired(email: string, reason: string): void {
+  getDb()
+    .prepare(
+      "UPDATE users SET auth_status = 'reauth_required', last_error = ? WHERE email = ?"
+    )
+    .run(reason, email);
+}
+
+export function markUserAuthValid(email: string): void {
+  getDb()
+    .prepare(
+      "UPDATE users SET auth_status = 'valid', consecutive_failures = 0, last_error = NULL WHERE email = ?"
+    )
+    .run(email);
+}
+
+export function recordPollFailure(email: string, error: string): void {
+  getDb()
+    .prepare(
+      "UPDATE users SET consecutive_failures = consecutive_failures + 1, last_error = ? WHERE email = ?"
+    )
+    .run(error, email);
+}
+
+export function resetPollFailures(email: string): void {
+  getDb()
+    .prepare(
+      "UPDATE users SET consecutive_failures = 0, last_error = NULL WHERE email = ?"
+    )
+    .run(email);
 }
 
 export function isEventHandled(eventId: string, userEmail: string): boolean {

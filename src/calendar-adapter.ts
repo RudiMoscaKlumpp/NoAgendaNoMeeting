@@ -1,5 +1,6 @@
 import { google, type calendar_v3 } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
+import { withRetry, isRetryableGoogleError, isAuthError } from "./retry";
 
 export interface CalendarEvent {
   id: string;
@@ -39,15 +40,29 @@ export async function pollNewEvents(
   let pageToken: string | undefined;
 
   do {
-    const res = await calendar.events.list({
-      calendarId: "primary",
-      timeMin: since.toISOString(),
-      timeMax: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      singleEvents: true,
-      orderBy: "startTime",
-      maxResults: 250,
-      pageToken,
-    });
+    const res = await withRetry(
+      () =>
+        calendar.events.list({
+          calendarId: "primary",
+          timeMin: since.toISOString(),
+          timeMax: new Date(
+            Date.now() + 7 * 24 * 60 * 60 * 1000
+          ).toISOString(),
+          singleEvents: true,
+          orderBy: "startTime",
+          maxResults: 250,
+          pageToken,
+        }),
+      {
+        maxAttempts: 3,
+        baseDelayMs: 2000,
+        maxDelayMs: 30000,
+        shouldRetry: (err) => {
+          if (isAuthError(err)) return false;
+          return isRetryableGoogleError(err);
+        },
+      }
+    );
 
     for (const item of res.data.items || []) {
       const event = toCalendarEvent(item);

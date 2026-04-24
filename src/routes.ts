@@ -1,7 +1,14 @@
 import { Router, type Request, type Response } from "express";
 import { google } from "googleapis";
 import { getAuthUrl, exchangeCode, createOAuth2Client } from "./google-auth";
-import { saveUserTokens, getAllUsers, getNotification, updateEventAction, type StoredTokens } from "./db";
+import {
+  saveUserTokens,
+  getAllUsers,
+  getNotification,
+  updateEventAction,
+  markUserAuthValid,
+  type StoredTokens,
+} from "./db";
 import { buildGmailComposeUrl, buildNudgeBody } from "./email-template";
 import { shsAuth } from "./middleware";
 
@@ -51,6 +58,7 @@ router.get("/auth/google/callback", async (req: Request, res: Response) => {
       expiry_date: tokens.expiry_date!,
     };
     saveUserTokens(email, storedTokens);
+    markUserAuthValid(email);
 
     res.json({
       message: "Authentication successful",
@@ -64,11 +72,22 @@ router.get("/auth/google/callback", async (req: Request, res: Response) => {
 
 router.get("/status", shsAuth, (_req: Request, res: Response) => {
   const users = getAllUsers();
+  const healthy = users.filter((u) => u.auth_status === "valid" && u.consecutive_failures === 0);
+  const needsReauth = users.filter((u) => u.auth_status === "reauth_required");
+  const degraded = users.filter(
+    (u) => u.auth_status === "valid" && u.consecutive_failures > 0
+  );
   res.json({
     authenticated_users: users.length,
+    healthy: healthy.length,
+    needs_reauth: needsReauth.length,
+    degraded: degraded.length,
     users: users.map((u) => ({
       email: u.email,
       last_poll_at: u.last_poll_at,
+      auth_status: u.auth_status,
+      consecutive_failures: u.consecutive_failures,
+      last_error: u.last_error,
     })),
   });
 });
