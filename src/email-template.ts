@@ -1,6 +1,9 @@
 import mjml2html from "mjml";
 import type { CalendarEvent } from "./calendar-adapter";
 import { config } from "./config";
+import { createLogger } from "./logger";
+
+const log = createLogger("email-template");
 
 const DEFAULT_NUDGE_TEXT =
   "Hey — I noticed the meeting invite doesn't have an agenda yet. " +
@@ -118,7 +121,7 @@ export async function renderEmail(
 
   const { html, errors } = await mjml2html(mjmlTemplate);
   if (errors.length > 0) {
-    console.error("[email-template] MJML errors:", errors);
+    log.error("MJML compilation errors", { errors });
   }
 
   return { html, subject };

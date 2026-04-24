@@ -11,6 +11,9 @@ import {
 } from "./db";
 import { buildGmailComposeUrl, buildNudgeBody } from "./email-template";
 import { shsAuth } from "./middleware";
+import { createLogger } from "./logger";
+
+const log = createLogger("routes");
 
 export const router = Router();
 
@@ -21,6 +24,7 @@ router.get("/", (_req: Request, res: Response) => {
     endpoints: {
       auth: "/auth/google",
       callback: "/auth/google/callback",
+      healthz: "/healthz",
       status: "/status",
     },
   });
@@ -65,9 +69,13 @@ router.get("/auth/google/callback", async (req: Request, res: Response) => {
       email,
     });
   } catch (err) {
-    console.error("OAuth callback error:", err);
+    log.error("OAuth callback failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to complete authentication" });
   }
+});
+
+router.get("/healthz", (_req: Request, res: Response) => {
+  res.json({ status: "ok" });
 });
 
 router.get("/status", shsAuth, (_req: Request, res: Response) => {

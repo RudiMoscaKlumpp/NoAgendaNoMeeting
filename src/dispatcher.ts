@@ -4,6 +4,9 @@ import { renderEmail } from "./email-template";
 import { markEventHandled, saveNotification } from "./db";
 import type { CalendarEvent } from "./calendar-adapter";
 import { withRetry, isRetryableSmtpError } from "./retry";
+import { createLogger } from "./logger";
+
+const log = createLogger("dispatcher");
 
 const transporter = nodemailer.createTransport({
   host: config.smtpHost,
@@ -43,7 +46,5 @@ export async function dispatchNotification(
   saveNotification(event, userEmail);
   markEventHandled(event.id, userEmail, "notified");
 
-  console.log(
-    `[dispatcher] Sent notification for "${event.summary}" to ${userEmail}`
-  );
+  log.info("Notification sent", { summary: event.summary, to: userEmail });
 }

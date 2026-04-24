@@ -21,6 +21,10 @@ function computeDelay(attempt: number, base: number, max: number): number {
   return Math.min(jitter, max);
 }
 
+import { createLogger } from "./logger";
+
+const log = createLogger("retry");
+
 export async function withRetry<T>(
   fn: () => Promise<T>,
   opts: Partial<RetryOptions> = {}
@@ -42,9 +46,9 @@ export async function withRetry<T>(
       if (attempt + 1 >= maxAttempts) break;
 
       const wait = computeDelay(attempt, baseDelayMs, maxDelayMs);
-      console.warn(
-        `[retry] Attempt ${attempt + 1}/${maxAttempts} failed, retrying in ${Math.round(wait)}ms`
-      );
+      log.warn("Attempt failed, retrying", {
+        attempt: attempt + 1, maxAttempts, retryInMs: Math.round(wait),
+      });
       await delay(wait);
     }
   }

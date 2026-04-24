@@ -12,6 +12,9 @@ import { pollNewEvents } from "./calendar-adapter";
 import { needsAgenda } from "./detector";
 import { dispatchNotification } from "./dispatcher";
 import { isAuthError } from "./retry";
+import { createLogger } from "./logger";
+
+const log = createLogger("poller");
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
@@ -20,7 +23,7 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 async function pollUser(email: string, lastPollAt: string | null): Promise<void> {
   const client = await getAuthenticatedClient(email);
   if (!client) {
-    console.warn(`[poller] Skipping ${email}: no valid credentials`);
+    log.warn("Skipping user: no valid credentials", { email });
     return;
   }
 
@@ -35,17 +38,15 @@ async function pollUser(email: string, lastPollAt: string | null): Promise<void>
     if (isEventHandled(event.id, email)) continue;
 
     if (needsAgenda(event)) {
-      console.log(
-        `[poller] Flagged: "${event.summary}" (${event.start}) for ${email}`
-      );
+      log.info("Event flagged: no agenda", { email, summary: event.summary, start: event.start });
       try {
         await dispatchNotification(event, email);
         flagged++;
       } catch (err) {
-        console.error(
-          `[poller] Failed to dispatch notification for "${event.summary}":`,
-          err
-        );
+        log.error("Failed to dispatch notification", {
+          email, summary: event.summary,
+          error: err instanceof Error ? err.message : String(err),
+        });
         markEventHandled(event.id, email, "dispatch_failed");
       }
     } else {
@@ -55,32 +56,28 @@ async function pollUser(email: string, lastPollAt: string | null): Promise<void>
 
   updateLastPollAt(email);
   resetPollFailures(email);
-  console.log(
-    `[poller] ${email}: checked ${events.length} events, flagged ${flagged}`
-  );
+  log.info("Poll cycle complete for user", { email, checked: events.length, flagged });
 }
 
 async function runPollCycle(): Promise<void> {
   const users = getAllUsers();
   if (users.length === 0) {
-    console.log("[poller] No users registered, skipping cycle");
+    log.info("No users registered, skipping cycle");
     return;
   }
 
-  console.log(`[poller] Starting poll cycle for ${users.length} user(s)`);
+  log.info("Starting poll cycle", { users: users.length });
 
   for (const user of users) {
     if (user.auth_status === "reauth_required") {
-      console.warn(
-        `[poller] Skipping ${user.email}: re-authentication required`
-      );
+      log.warn("Skipping user: re-authentication required", { email: user.email });
       continue;
     }
 
     if (user.consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
-      console.warn(
-        `[poller] Skipping ${user.email}: ${user.consecutive_failures} consecutive failures (last: ${user.last_error})`
-      );
+      log.warn("Skipping user: too many consecutive failures", {
+        email: user.email, failures: user.consecutive_failures, lastError: user.last_error,
+      });
       continue;
     }
 
@@ -88,19 +85,15 @@ async function runPollCycle(): Promise<void> {
       await pollUser(user.email, user.last_poll_at);
     } catch (err) {
       if (err instanceof ReauthRequiredError) {
-        console.error(
-          `[poller] ${user.email}: token invalid, re-auth required`
-        );
+        log.error("Token invalid, re-auth required", { email: user.email });
       } else if (isAuthError(err)) {
-        const reason =
-          err instanceof Error ? err.message : "Authentication error";
+        const reason = err instanceof Error ? err.message : "Authentication error";
         markUserReauthRequired(user.email, reason);
-        console.error(`[poller] ${user.email}: auth error — ${reason}`);
+        log.error("Auth error", { email: user.email, reason });
       } else {
-        const errorMsg =
-          err instanceof Error ? err.message : String(err);
+        const errorMsg = err instanceof Error ? err.message : String(err);
         recordPollFailure(user.email, errorMsg);
-        console.error(`[poller] Error polling ${user.email}:`, err);
+        log.error("Poll failed", { email: user.email, error: errorMsg });
       }
     }
   }
@@ -111,15 +104,15 @@ let intervalHandle: ReturnType<typeof setInterval> | null = null;
 export function startPoller(): void {
   if (intervalHandle) return;
 
-  console.log(`[poller] Starting with ${POLL_INTERVAL_MS / 1000}s interval`);
+  log.info("Poller starting", { intervalSeconds: POLL_INTERVAL_MS / 1000 });
 
   runPollCycle().catch((err) =>
-    console.error("[poller] Initial cycle failed:", err)
+    log.error("Initial cycle failed", { error: err instanceof Error ? err.message : String(err) })
   );
 
   intervalHandle = setInterval(() => {
     runPollCycle().catch((err) =>
-      console.error("[poller] Cycle failed:", err)
+      log.error("Cycle failed", { error: err instanceof Error ? err.message : String(err) })
     );
   }, POLL_INTERVAL_MS);
 }
@@ -128,6 +121,6 @@ export function stopPoller(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
-    console.log("[poller] Stopped");
+    log.info("Poller stopped");
   }
 }
