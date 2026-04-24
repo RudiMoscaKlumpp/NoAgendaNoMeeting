@@ -79,3 +79,19 @@ export function getAllUsers(): Array<{ email: string; last_poll_at: string | nul
     .prepare("SELECT email, last_poll_at FROM users")
     .all() as Array<{ email: string; last_poll_at: string | null }>;
 }
+
+export function isEventHandled(eventId: string, userEmail: string): boolean {
+  const row = getDb()
+    .prepare("SELECT 1 FROM handled_events WHERE event_id = ? AND user_email = ?")
+    .get(eventId, userEmail);
+  return !!row;
+}
+
+export function markEventHandled(eventId: string, userEmail: string, action: string): void {
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO handled_events (event_id, user_email, action)
+       VALUES (?, ?, ?)`
+    )
+    .run(eventId, userEmail, action);
+}
