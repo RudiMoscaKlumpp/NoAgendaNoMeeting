@@ -2,6 +2,7 @@ import { getAllUsers, updateLastPollAt, isEventHandled, markEventHandled } from 
 import { getAuthenticatedClient } from "./google-auth";
 import { pollNewEvents } from "./calendar-adapter";
 import { needsAgenda } from "./detector";
+import { dispatchNotification } from "./dispatcher";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
@@ -23,8 +24,13 @@ async function pollUser(email: string, lastPollAt: string | null): Promise<void>
 
     if (needsAgenda(event)) {
       console.log(`[poller] Flagged: "${event.summary}" (${event.start}) for ${email}`);
-      markEventHandled(event.id, email, "flagged_no_agenda");
-      flagged++;
+      try {
+        await dispatchNotification(event, email);
+        flagged++;
+      } catch (err) {
+        console.error(`[poller] Failed to dispatch notification for "${event.summary}":`, err);
+        markEventHandled(event.id, email, "dispatch_failed");
+      }
     } else {
       markEventHandled(event.id, email, "ok");
     }

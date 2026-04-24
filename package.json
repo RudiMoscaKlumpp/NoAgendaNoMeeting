@@ -11,15 +11,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/nodemailer": "^8.0.0",
     "better-sqlite3": "^11.7.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.21.2",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "mjml": "^5.1.0",
+    "nodemailer": "^8.0.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",
+    "@types/mjml": "^5.0.0",
     "@types/node": "^22.13.0",
     "eslint": "^9.19.0",
     "tsx": "^4.19.0",

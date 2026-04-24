@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { resolve } from "path";
 import { encrypt, decrypt } from "./crypto";
+import type { CalendarEvent } from "./calendar-adapter";
 
 const DB_PATH = resolve(process.cwd(), "nanm.db");
 
@@ -30,6 +31,19 @@ function initSchema(db: Database.Database): void {
       user_email TEXT NOT NULL,
       action TEXT NOT NULL,
       handled_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (event_id, user_email),
+      FOREIGN KEY (user_email) REFERENCES users(email)
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      event_id TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      event_summary TEXT NOT NULL,
+      event_start TEXT NOT NULL,
+      event_organizer TEXT,
+      event_attendee_count INTEGER NOT NULL DEFAULT 0,
+      event_html_link TEXT,
+      notified_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (event_id, user_email),
       FOREIGN KEY (user_email) REFERENCES users(email)
     );
@@ -94,4 +108,46 @@ export function markEventHandled(eventId: string, userEmail: string, action: str
        VALUES (?, ?, ?)`
     )
     .run(eventId, userEmail, action);
+}
+
+export function updateEventAction(eventId: string, userEmail: string, action: string): void {
+  getDb()
+    .prepare("UPDATE handled_events SET action = ? WHERE event_id = ? AND user_email = ?")
+    .run(action, eventId, userEmail);
+}
+
+export function saveNotification(event: CalendarEvent, userEmail: string): void {
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO notifications
+       (event_id, user_email, event_summary, event_start, event_organizer, event_attendee_count, event_html_link)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      event.id,
+      userEmail,
+      event.summary,
+      event.start,
+      event.organizer,
+      event.attendeeCount,
+      event.htmlLink
+    );
+}
+
+export interface NotificationRow {
+  event_id: string;
+  user_email: string;
+  event_summary: string;
+  event_start: string;
+  event_organizer: string | null;
+  event_attendee_count: number;
+  event_html_link: string | null;
+}
+
+export function getNotification(eventId: string, userEmail: string): NotificationRow | null {
+  return (
+    (getDb()
+      .prepare("SELECT * FROM notifications WHERE event_id = ? AND user_email = ?")
+      .get(eventId, userEmail) as NotificationRow | undefined) || null
+  );
 }
