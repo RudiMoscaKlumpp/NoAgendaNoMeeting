@@ -68,11 +68,11 @@ describe("renderEmail", () => {
     expect(html).toContain("pm@example.com");
   });
 
-  it("includes edit and skip URLs with user email", async () => {
+  it("includes signed action URLs for edit and skip", async () => {
     const { html } = await renderEmail(makeEvent(), "user@example.com");
-    expect(html).toContain("/edit/evt-1");
-    expect(html).toContain("/skip/evt-1");
-    expect(html).toContain("user%40example.com");
+    expect(html).toContain("/#/edit/evt-1?t=");
+    expect(html).toContain("/#/skip/evt-1?t=");
+    expect(html).not.toContain("user%40example.com"); // no plain email in URL anymore
   });
 
   it("includes Gmail compose URL", async () => {

@@ -3,19 +3,26 @@ import { resolve } from "path";
 import { encrypt, decrypt } from "./crypto";
 import type { CalendarEvent } from "./calendar-adapter";
 
-const DB_PATH = resolve(process.cwd(), "nanm.db");
+const DB_PATH = process.env.NANM_DB_PATH || resolve(process.cwd(), "nanm.db");
 
-let db: Database.Database;
+let db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (!db) {
-    db = new Database(DB_PATH);
+    db = new Database(process.env.NANM_DB_PATH || DB_PATH);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     initSchema(db);
     migrateSchema(db);
   }
   return db;
+}
+
+export function resetDb(): void {
+  if (db) {
+    db.close();
+    db = null;
+  }
 }
 
 function migrateSchema(db: Database.Database): void {

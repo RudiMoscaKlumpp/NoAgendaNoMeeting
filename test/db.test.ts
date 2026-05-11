@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { resolve } from "path";
 import { unlinkSync, existsSync } from "fs";
-
-const TEST_DB_PATH = resolve(process.cwd(), "nanm-test.db");
 
 import {
   saveUserTokens,
@@ -20,25 +16,27 @@ import {
   saveNotification,
   getNotification,
   updateLastPollAt,
+  resetDb,
   type StoredTokens,
 } from "../src/db";
 import type { CalendarEvent } from "../src/calendar-adapter";
 
 function cleanupTestDb() {
+  const base = process.env.NANM_DB_PATH!;
   for (const suffix of ["", "-wal", "-shm"]) {
-    const path = TEST_DB_PATH + suffix;
+    const path = base + suffix;
     if (existsSync(path)) unlinkSync(path);
   }
 }
 
 describe("database layer", () => {
   beforeEach(() => {
+    resetDb();
     cleanupTestDb();
-    // Reset the db module singleton by overriding DB_PATH via cwd
-    // We'll use the default path since getDb() uses process.cwd()
   });
 
   afterEach(() => {
+    resetDb();
     cleanupTestDb();
   });
 

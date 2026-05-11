@@ -9,7 +9,11 @@ import {
 } from "./db";
 import { withRetry, isAuthError } from "./retry";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"];
+const SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/calendar.readonly",
+];
 
 export class ReauthRequiredError extends Error {
   constructor(

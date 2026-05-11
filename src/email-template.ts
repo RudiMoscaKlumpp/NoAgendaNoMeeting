@@ -1,6 +1,7 @@
 import mjml2html from "mjml";
 import type { CalendarEvent } from "./calendar-adapter";
 import { config } from "./config";
+import { signActionToken } from "./action-token";
 import { createLogger } from "./logger";
 
 const log = createLogger("email-template");
@@ -54,8 +55,9 @@ export async function renderEmail(
 ): Promise<{ html: string; subject: string }> {
   const subject = buildNudgeSubject(event);
   const gmailUrl = buildGmailComposeUrl(event);
-  const editUrl = `${config.appUrl}/edit/${event.id}?user=${encodeURIComponent(userEmail)}`;
-  const skipUrl = `${config.appUrl}/skip/${event.id}?user=${encodeURIComponent(userEmail)}`;
+  const token = signActionToken(event.id, userEmail);
+  const editUrl = `${config.appUrl}/#/edit/${encodeURIComponent(event.id)}?t=${token}`;
+  const skipUrl = `${config.appUrl}/#/skip/${encodeURIComponent(event.id)}?t=${token}`;
 
   const mjmlTemplate = `
 <mjml>

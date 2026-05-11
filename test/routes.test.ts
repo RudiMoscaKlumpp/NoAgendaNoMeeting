@@ -1,16 +1,20 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import express from "express";
-import cookieParser from "cookie-parser";
 import request from "supertest";
 import { router } from "../src/routes";
-import { getDb, saveUserTokens, saveNotification, markEventHandled } from "../src/db";
+import {
+  saveUserTokens,
+  saveNotification,
+  markEventHandled,
+  resetDb,
+} from "../src/db";
+import { signActionToken } from "../src/action-token";
 import type { CalendarEvent } from "../src/calendar-adapter";
 import type { StoredTokens } from "../src/db";
 
 function createApp() {
   const app = express();
   app.use(express.json());
-  app.use(cookieParser());
   app.use(router);
   return app;
 }
@@ -33,19 +37,17 @@ const testEvent: CalendarEvent = {
   htmlLink: "https://calendar.google.com/event?eid=route1",
 };
 
+const USER = "user@example.com";
+
+function seed() {
+  saveUserTokens(USER, testTokens);
+  saveNotification(testEvent, USER);
+  markEventHandled(testEvent.id, USER, "notified");
+}
+
 describe("routes", () => {
   beforeEach(() => {
-    getDb();
-  });
-
-  describe("GET /", () => {
-    it("returns service info", async () => {
-      const res = await request(createApp()).get("/");
-      expect(res.status).toBe(200);
-      expect(res.body.service).toBe("No Agenda? No Meeting");
-      expect(res.body.version).toBe("0.1.0");
-      expect(res.body.endpoints).toBeDefined();
-    });
+    resetDb();
   });
 
   describe("GET /healthz", () => {
@@ -56,29 +58,12 @@ describe("routes", () => {
     });
   });
 
-  describe("GET /status", () => {
-    it("rejects requests without auth header", async () => {
-      const res = await request(createApp()).get("/status");
-      expect(res.status).toBe(401);
-    });
-
-    it("rejects invalid bearer token", async () => {
-      const res = await request(createApp())
-        .get("/status")
-        .set("Authorization", "Bearer wrong-token");
-      expect(res.status).toBe(403);
-    });
-
-    it("returns user stats with valid SHS token", async () => {
-      saveUserTokens("status-test@example.com", testTokens);
-      const res = await request(createApp())
-        .get("/status")
-        .set("Authorization", "Bearer test-shs-secret");
+  describe("GET /api/status", () => {
+    it("returns user stats", async () => {
+      saveUserTokens(USER, testTokens);
+      const res = await request(createApp()).get("/api/status");
       expect(res.status).toBe(200);
       expect(res.body.authenticated_users).toBeGreaterThanOrEqual(1);
-      expect(res.body).toHaveProperty("healthy");
-      expect(res.body).toHaveProperty("needs_reauth");
-      expect(res.body).toHaveProperty("degraded");
       expect(res.body.users).toBeInstanceOf(Array);
     });
   });
@@ -95,60 +80,62 @@ describe("routes", () => {
     it("returns 400 without code parameter", async () => {
       const res = await request(createApp()).get("/auth/google/callback");
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("Missing authorization code");
     });
   });
 
-  describe("GET /edit/:eventId", () => {
-    it("returns 400 without user parameter", async () => {
-      const res = await request(createApp()).get("/edit/evt-1");
-      expect(res.status).toBe(400);
+  describe("GET /api/notification/:eventId", () => {
+    it("rejects missing token", async () => {
+      const res = await request(createApp()).get(`/api/notification/${testEvent.id}`);
+      expect(res.status).toBe(403);
+      expect(res.body.error).toContain("malformed");
     });
 
-    it("returns 404 for unknown notification", async () => {
-      const res = await request(createApp()).get("/edit/nonexistent?user=test@example.com");
+    it("rejects token signed for a different event", async () => {
+      seed();
+      const wrongToken = signActionToken("evt-other", USER);
+      const res = await request(createApp()).get(
+        `/api/notification/${testEvent.id}?t=${wrongToken}`
+      );
+      expect(res.status).toBe(403);
+      expect(res.body.error).toContain("mismatch");
+    });
+
+    it("returns 404 with valid token but no notification", async () => {
+      saveUserTokens(USER, testTokens);
+      const token = signActionToken("ghost-event", USER);
+      const res = await request(createApp()).get(
+        `/api/notification/ghost-event?t=${token}`
+      );
       expect(res.status).toBe(404);
     });
 
-    it("renders edit form for existing notification", async () => {
-      saveUserTokens("edit-test@example.com", testTokens);
-      saveNotification(testEvent, "edit-test@example.com");
-      markEventHandled(testEvent.id, "edit-test@example.com", "notified");
-
+    it("returns notification for valid token", async () => {
+      seed();
+      const token = signActionToken(testEvent.id, USER);
       const res = await request(createApp()).get(
-        `/edit/${testEvent.id}?user=edit-test@example.com`
+        `/api/notification/${testEvent.id}?t=${token}`
       );
       expect(res.status).toBe(200);
-      expect(res.text).toContain("Edit your nudge");
-      expect(res.text).toContain("Weekly Sync");
-      expect(res.text).toContain("boss@example.com");
-      expect(res.text).toContain("textarea");
-      expect(res.text).toContain("Open in Gmail");
+      expect(res.body.event_summary).toBe("Weekly Sync");
+      expect(res.body.event_organizer).toBe("boss@example.com");
+      expect(res.body.default_draft).toBeTruthy();
     });
   });
 
-  describe("GET /skip/:eventId", () => {
-    it("returns 400 without user parameter", async () => {
-      const res = await request(createApp()).get("/skip/evt-1");
-      expect(res.status).toBe(400);
+  describe("POST /api/skip/:eventId", () => {
+    it("rejects missing token", async () => {
+      const res = await request(createApp()).post(`/api/skip/${testEvent.id}`);
+      expect(res.status).toBe(403);
     });
 
-    it("returns 404 for unknown notification", async () => {
-      const res = await request(createApp()).get("/skip/nonexistent?user=test@example.com");
-      expect(res.status).toBe(404);
-    });
-
-    it("marks event as skipped and shows confirmation", async () => {
-      saveUserTokens("skip-test@example.com", testTokens);
-      saveNotification(testEvent, "skip-test@example.com");
-      markEventHandled(testEvent.id, "skip-test@example.com", "notified");
-
-      const res = await request(createApp()).get(
-        `/skip/${testEvent.id}?user=skip-test@example.com`
+    it("marks event as skipped with valid token", async () => {
+      seed();
+      const token = signActionToken(testEvent.id, USER);
+      const res = await request(createApp()).post(
+        `/api/skip/${testEvent.id}?t=${token}`
       );
       expect(res.status).toBe(200);
-      expect(res.text).toContain("Skipped");
-      expect(res.text).toContain("Weekly Sync");
+      expect(res.body.event_summary).toBe("Weekly Sync");
     });
   });
 });

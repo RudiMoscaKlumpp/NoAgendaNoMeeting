@@ -1,6 +1,13 @@
 import crypto from "crypto";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const testEncryptionKey = crypto.randomBytes(32).toString("hex");
+
+process.env.NANM_DB_PATH = join(
+  tmpdir(),
+  `nanm-test-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.db`
+);
 
 process.env.GOOGLE_CLIENT_ID = "test-client-id";
 process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";

@@ -37,7 +37,7 @@ async function pollUser(email: string, lastPollAt: string | null): Promise<void>
   for (const event of events) {
     if (isEventHandled(event.id, email)) continue;
 
-    if (needsAgenda(event)) {
+    if (needsAgenda(event, email)) {
       log.info("Event flagged: no agenda", { email, summary: event.summary, start: event.start });
       try {
         await dispatchNotification(event, email);
