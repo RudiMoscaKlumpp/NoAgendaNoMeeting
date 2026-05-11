@@ -1200,21 +1200,62 @@ git commit -m "feat(ext): popup UI with design tokens and connect/disconnect"
 - Modify: `extension/lib/oauth.ts`
 - Create: `extension/.env.example` (documents the values)
 
-- [ ] **Step 1: Confirm the GCP-side setup is done**
+- [ ] **Step 1: Identify or obtain a Wooga-owned GCP project**
 
-Before this task, confirm with Manne (or do yourself if you have GCP access):
-1. OAuth consent screen in the Wooga GCP project has User type = **Internal**.
-2. A new OAuth 2.0 Client ID has been created with type **Web application**.
-3. The Authorized redirect URI is the value of `chrome.identity.getRedirectURL()` for your unpacked extension (you can log this from the popup once for inspection — typically `https://<chrome-extension-id>.chromiumapp.org/`).
-4. Scope `https://www.googleapis.com/auth/calendar.readonly` is added to the consent screen.
+The Internal user type exemption only applies if the GCP project is owned by the Wooga Workspace organisation. Check https://console.cloud.google.com/ for an existing project where you have Owner or Editor role and the project is under the Wooga org.
 
-If any of these is missing, **mark the implementation as blocked** in the issue tracker. Owner: Manne. Action: complete the four steps above.
+- **If you have access:** continue self-serve.
+- **If you don't:** mark this task blocked. Unblock owner: **Manne** (or whoever administers the Wooga GCP org). Unblock action: grant you Owner/Editor on a Wooga-org project, or name an existing one to reuse, or sponsor creation of a new project named e.g. `wooga-nanm`.
 
-- [ ] **Step 2: Replace the CLIENT_ID placeholder**
+Manne is **not** required to do the steps below — only to provide access if missing.
+
+- [ ] **Step 2: Configure the OAuth consent screen**
+
+In the chosen project:
+1. **APIs & Services → OAuth consent screen.**
+2. User type: **Internal**.
+3. App name: `No Agenda? No Meeting`.
+4. User support email + developer contact: your Wooga email.
+5. Save.
+6. **Scopes** step: add `https://www.googleapis.com/auth/calendar.readonly`. (Internal user type means no Google verification is needed for this sensitive scope.)
+
+- [ ] **Step 3: Enable the Google Calendar API**
+
+**APIs & Services → Library → "Google Calendar API" → Enable.** If it's already enabled at the org level, this is a no-op.
+
+- [ ] **Step 4: Create the OAuth client**
+
+1. **APIs & Services → Credentials → Create Credentials → OAuth client ID.**
+2. Application type: **Web application** (NOT "Chrome extension" — that one only supports the Chrome-only `getAuthToken()` flow).
+3. Name: `NANM extension (POC)`.
+4. Leave Authorized redirect URIs empty for now — you'll fill it in Step 6.
+5. Save. Copy the **Client ID**.
+
+- [ ] **Step 5: Capture your extension's redirect URI**
+
+Load `extension/.output/chrome-mv3/` unpacked in Chrome. From the service-worker console (chrome://extensions → service worker link), run:
+
+```js
+console.log(chrome.identity.getRedirectURL());
+```
+
+Copy the value — it will be `https://<your-extension-id>.chromiumapp.org/`.
+
+- [ ] **Step 6: Register the redirect URI on the OAuth client**
+
+In GCP → Credentials → your client → **Authorized redirect URIs** → add the value from Step 5. Save.
+
+(Repeat for the Edge unpacked install if/when you test there — same extension ID generation rule, different value.)
+
+- [ ] **Step 7: Manne sign-off (optional, parallel)**
+
+Security framing is documented in the spec. Manne's sign-off is **advisory** for POC, not gating. You can ship to Lenka while it's pending. If you want it before Lenka: share `docs/superpowers/specs/2026-05-11-nanm-browser-extension-design.md`.
+
+- [ ] **Step 8: Replace the CLIENT_ID placeholder**
 
 Edit `extension/lib/oauth.ts`, replace `REPLACE_ME.apps.googleusercontent.com` with the actual client ID from the GCP console.
 
-- [ ] **Step 3: Document the value for future contributors**
+- [ ] **Step 9: Document the value for future contributors**
 
 `extension/.env.example`:
 
@@ -1225,7 +1266,7 @@ Edit `extension/lib/oauth.ts`, replace `REPLACE_ME.apps.googleusercontent.com` w
 NANM_OAUTH_CLIENT_ID=...apps.googleusercontent.com
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add extension/lib/oauth.ts extension/.env.example && \
@@ -1348,6 +1389,6 @@ Per the CEO/issue protocol: anything not green below is a blocker, with the unbl
 
 | Risk | Mitigation | Unblock owner |
 |---|---|---|
-| GCP OAuth client not yet created | Cannot run end-to-end test in Task 11 | **Manne** — create Web-application OAuth client in Wooga-owned GCP project, User type = Internal |
-| `chrome.identity.getRedirectURL()` value differs per machine for unpacked installs | Log it once from a popup and feed it into the GCP redirect URIs | Rudi (after Task 9 build) |
-| Sean has UX feedback that requires UI rework | Self-imposed; skip if absent | **Sean** (optional) — review the spec at `docs/superpowers/specs/2026-05-11-nanm-browser-extension-design.md` |
+| GCP project access | Cannot create the OAuth client | **Self-serve if you already have Owner/Editor on a Wooga-org GCP project.** Only blocked on **Manne** if you need access provisioned. |
+| `chrome.identity.getRedirectURL()` value differs per machine for unpacked installs | Log it once from the service worker console and feed it into the GCP redirect URIs | Rudi (after Task 1 build) |
+| Manne security sign-off | Advisory, not gating for POC | **Sean / Manne** — review spec at `docs/superpowers/specs/2026-05-11-nanm-browser-extension-design.md`. Lenka demo can proceed in parallel. |
