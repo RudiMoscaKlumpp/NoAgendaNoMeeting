@@ -22,9 +22,9 @@ Cross-browser WebExtension (MV3). Runs entirely on the user's machine. No Wooga-
 
 Three modules, same shape as the previous SHS design, but native to the extension runtime:
 
-1. **Calendar adapter.** Uses `fetch` against the Google Calendar REST API (`/calendar/v3/calendars/primary/events?updatedMin=…&singleEvents=true`) on a 15-minute `chrome.alarms` cadence. Replaces the `googleapis` Node SDK and `src/poller.ts`.
+1. **Calendar adapter.** Uses `fetch` against the Google Calendar REST API (`/calendar/v3/calendars/primary/events`) on a 15-minute `chrome.alarms` cadence. Replaces the `googleapis` Node SDK and `src/poller.ts`. **Polling pattern: incremental sync via `syncToken`** (Google's documented best practice for change polling). First request omits `syncToken` to fetch a small initial window and capture `nextSyncToken`; subsequent requests pass `syncToken` and receive only deltas. On HTTP 410 from Google (token invalidated), fall back to a full resync and store the new `nextSyncToken`. Per-user quota is trivial at 4 requests/hour.
 2. **Detector.** Pure function, ports directly from `src/detector.ts`. Empty or whitespace-only `description` flags the event. Same exemptions as before: non-first recurring instances, invites organized by the user.
-3. **Dispatcher.** On a flagged event, fires `chrome.notifications.create()` with the event title and organizer. The notification has two buttons: **Send** and **Skip**. **Send** opens `https://mail.google.com/mail/?view=cm&fs=1&to=…&su=…&body=…` in a new tab, with the draft text URL-encoded. **Skip** marks the event handled. Replaces nodemailer and the MJML templating.
+3. **Dispatcher.** On a flagged event, fires `chrome.notifications.create()` with the event title and organizer. **Primary action: clicking the notification body itself** opens `https://mail.google.com/mail/?view=cm&fs=1&to=…&su=…&body=…` in a new tab, with the draft text URL-encoded. A secondary **Skip** button marks the event handled without opening compose. **macOS caveat:** native macOS notifications hide extension action buttons behind a "More" hover menu, so we cannot rely on prominent button display. The design accommodates this by making the body click the primary path — Skip is the only button and is accessed via the More menu on macOS, directly on Windows/Linux. Replaces nodemailer and the MJML templating.
 
 **State.**
 - `chrome.storage.local` for the set of handled event IDs. Replaces SQLite.
@@ -36,6 +36,8 @@ Three modules, same shape as the previous SHS design, but native to the extensio
 **OAuth client type (decided): "Web application," not "Chrome extension."** Google's "Chrome extension" client type only supports the Chrome-only `chrome.identity.getAuthToken()` flow and does not accept `chromiumapp.org` redirect URIs. For `launchWebAuthFlow` (which we need for cross-browser support) we register a "Web application" client in the Wooga GCP project with the `chromiumapp.org` redirect URI(s) as Authorized redirect URIs.
 
 **OAuth consent screen: User type = Internal.** `calendar.readonly` is classified by Google as a **sensitive scope**, which normally requires full OAuth app verification (multi-week process). Setting the consent screen User type to **Internal** in the Wooga GCP project waives this verification entirely for sensitive and restricted scopes, because the app is restricted to users within the Wooga Workspace domain. This is the supported and documented path; no exception or special approval is needed. (Source: https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification.)
+
+**Refresh token durability.** With User type = Internal (or any app in Production publishing status), refresh tokens do not expire on a fixed schedule. The 7-day expiry only applies to apps in "Testing" status with External user type. The only practical invalidation paths for our setup are: (a) user revokes access in their Google Account, (b) refresh token unused for 6 months. Neither matters for a daily-use tool. The extension can store and rely on the refresh token indefinitely.
 
 **Service worker lifecycle.** Alarms can be cleared on browser restart, so the service worker re-creates the 15-minute alarm at the top of its lifecycle on every startup. All `chrome.alarms.onAlarm` listeners are registered synchronously at the top level of the worker script, so a cold-wake from an alarm fires correctly. As a defensive measure against the documented "alarms enter a stuck state" failure mode, the worker also performs a self-healing check on every cold-start: if the expected alarm is missing from `chrome.alarms.getAll()`, it re-creates it.
 
@@ -71,7 +73,7 @@ Three modules, same shape as the previous SHS design, but native to the extensio
 
 ## Scope for POC
 
-- Chrome and Edge from the same MV3 artifact. Firefox best-effort.
+- **Chrome and Edge only**, from the same MV3 artifact. Firefox dropped from POC scope: Firefox's MV3 background model uses event pages, not Chromium-style service workers, so non-trivial divergence applies despite the API polyfill. Revisit Firefox for MVP if there is demand.
 - `calendar.readonly` only.
 - Empty-description detection, no LLM.
 - One hardcoded draft template.
@@ -81,7 +83,8 @@ Three modules, same shape as the previous SHS design, but native to the extensio
 
 ## Out of scope for POC
 
-- Firefox and Safari packaging polish.
+- Firefox and Safari support entirely (Firefox revisited for MVP, Safari deferred indefinitely).
+- Calendar push notifications via `events.watch` — requires an HTTPS callback endpoint, which is incompatible with a server-less extension. Polling stays as the only mechanism.
 - Gmail API write scope (threaded replies stay unsupported).
 - Chrome Web Store and Workspace Marketplace listings.
 - LLM agenda detection.
@@ -129,6 +132,10 @@ No existing browser extension or Workspace add-on solves this specific shape (ag
 - `chrome.identity` (Chrome): https://developer.chrome.com/docs/extensions/reference/api/identity
 - `browser.identity.launchWebAuthFlow` (Firefox): https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/identity/launchWebAuthFlow
 - Gmail compose URL parameters: https://til.simonwillison.net/google/gmail-compose-url
+- Calendar API incremental sync (syncToken pattern): https://developers.google.com/workspace/calendar/api/guides/sync
+- Calendar API quota and rate limits: https://developers.google.com/workspace/calendar/api/guides/quota
+- chrome.notifications macOS button limitations: https://developer.chrome.com/blog/native-mac-os-notifications
+- Firefox MV3 background model divergence: https://extensionworkshop.com/documentation/develop/manifest-v3-migration-guide/
 - Sensitive scope verification (and Internal-user-type exemption): https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification
 - Configure the OAuth consent screen and choose scopes: https://developers.google.com/workspace/guides/configure-oauth-consent
 - Enterprise extension force-install (ExtensionInstallForcelist): https://learn.microsoft.com/en-us/deployedge/microsoft-edge-manage-extensions-policies
