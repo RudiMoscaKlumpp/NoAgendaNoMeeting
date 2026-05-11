@@ -33,7 +33,13 @@ Three modules, same shape as the previous SHS design, but native to the extensio
 
 **Auth.** OAuth 2.0 PKCE via `browser.identity.launchWebAuthFlow`. Scope: `calendar.readonly` only. Token never touches any server we own. The redirect URL is resolved at runtime via `browser.identity.getRedirectURL()` — different browsers use different patterns (`<id>.chromiumapp.org` in Chrome/Edge, an extension-specific scheme in Firefox), so the Google OAuth client must have **both** redirect URIs registered.
 
-**Service worker lifecycle.** Alarms can be cleared on browser restart, so the service worker re-creates the 15-minute alarm at the top of its lifecycle on every startup. All `chrome.alarms.onAlarm` listeners are registered synchronously at the top level of the worker script, so a cold-wake from an alarm fires correctly.
+**OAuth client type (decided): "Web application," not "Chrome extension."** Google's "Chrome extension" client type only supports the Chrome-only `chrome.identity.getAuthToken()` flow and does not accept `chromiumapp.org` redirect URIs. For `launchWebAuthFlow` (which we need for cross-browser support) we register a "Web application" client in the Wooga GCP project with the `chromiumapp.org` redirect URI(s) as Authorized redirect URIs.
+
+**OAuth consent screen: User type = Internal.** `calendar.readonly` is classified by Google as a **sensitive scope**, which normally requires full OAuth app verification (multi-week process). Setting the consent screen User type to **Internal** in the Wooga GCP project waives this verification entirely for sensitive and restricted scopes, because the app is restricted to users within the Wooga Workspace domain. This is the supported and documented path; no exception or special approval is needed. (Source: https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification.)
+
+**Service worker lifecycle.** Alarms can be cleared on browser restart, so the service worker re-creates the 15-minute alarm at the top of its lifecycle on every startup. All `chrome.alarms.onAlarm` listeners are registered synchronously at the top level of the worker script, so a cold-wake from an alarm fires correctly. As a defensive measure against the documented "alarms enter a stuck state" failure mode, the worker also performs a self-healing check on every cold-start: if the expected alarm is missing from `chrome.alarms.getAll()`, it re-creates it.
+
+**Polling cadence reality.** Chrome's `chrome.alarms` minimum is 30 seconds (since Chrome 120), but Chrome may delay alarm fires under load — anecdotally up to 30 minutes beyond the scheduled time. For a 15-minute target cadence this means worst-case nudge latency of roughly 45 minutes. Acceptable for the POC; we do not engineer around it.
 
 ## User flow
 
@@ -93,11 +99,11 @@ No existing browser extension or Workspace add-on solves this specific shape (ag
 
 ## Open items
 
-- **OAuth client:** new "Public/PKCE" client in the existing Wooga GCP project, or reuse the current web client? Recommend new PKCE client for clean separation.
-- **Redirect URIs:** both the Chrome/Edge (`<id>.chromiumapp.org`) and Firefox redirect URIs must be registered on the OAuth client.
+- **GCP project ownership:** the OAuth client and consent screen must live in a GCP project **owned by the Wooga Workspace organization** for the Internal user type exemption to apply. Confirm with Manne which project to use, or create a new one.
+- **Redirect URIs:** register both Chrome/Edge (`<id>.chromiumapp.org`) and Firefox redirect URIs on the OAuth client.
 - **Distribution for Lenka:** unpacked + screen-share, or unlisted Web Store entry? Recommend unpacked for POC speed.
 - **Branding:** name and icon pulled from existing `Style-guide.md`.
-- **Manne sign-off:** confirm the "no Wooga-hosted credentials, no Wooga-hosted service" framing meets his security bar.
+- **Manne sign-off:** confirm the "no Wooga-hosted credentials, no Wooga-hosted service, Internal-user-type Workspace OAuth" framing meets his security bar.
 
 ## Timeline
 
@@ -123,4 +129,7 @@ No existing browser extension or Workspace add-on solves this specific shape (ag
 - `chrome.identity` (Chrome): https://developer.chrome.com/docs/extensions/reference/api/identity
 - `browser.identity.launchWebAuthFlow` (Firefox): https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/identity/launchWebAuthFlow
 - Gmail compose URL parameters: https://til.simonwillison.net/google/gmail-compose-url
+- Sensitive scope verification (and Internal-user-type exemption): https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification
+- Configure the OAuth consent screen and choose scopes: https://developers.google.com/workspace/guides/configure-oauth-consent
+- Enterprise extension force-install (ExtensionInstallForcelist): https://learn.microsoft.com/en-us/deployedge/microsoft-edge-manage-extensions-policies
 - Previous design (superseded): https://woogagmbh.atlassian.net/wiki/spaces/AVS/pages/5338267660/Proposed+Design+No+Agenda+No+Meeting
