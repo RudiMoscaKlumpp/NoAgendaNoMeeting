@@ -36,4 +36,10 @@ export const config = {
   sessionSecret: required("SESSION_SECRET"),
   tokenEncryptionKey: required("TOKEN_ENCRYPTION_KEY"),
   shsSecret: required("SHS_SECRET"),
+  appUrl: process.env.APP_URL || "http://localhost:3000",
+  smtpHost: required("SMTP_HOST"),
+  smtpPort: parseInt(process.env.SMTP_PORT || "587", 10),
+  smtpUser: required("SMTP_USER"),
+  smtpPass: required("SMTP_PASS"),
+  emailFrom: required("EMAIL_FROM"),
 };
